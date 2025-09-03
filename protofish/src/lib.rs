@@ -1,14 +1,24 @@
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
-}
+mod prost_generated {
+    #![allow(warnings)]
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+    pub mod common {
+        pub mod v1 {
+            include!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/src/prost_generated/common.v1.rs"
+            ));
+        }
+    }
 
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
+    pub mod payload {
+        pub mod v1 {
+            include!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/src/prost_generated/payload.v1.rs"
+            ));
+        }
     }
 }
+
+mod macros;
+mod schema;

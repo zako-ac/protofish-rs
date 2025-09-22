@@ -1,25 +1,20 @@
-use std::{marker::PhantomData, sync::Arc};
+use std::sync::Arc;
 
-use crate::{
-    core::common::pmc::PMC,
-    utp::protocol::{UTP, UTPStream},
-};
+use crate::{core::common::pmc::PMC, utp::protocol::UTP};
 
-pub struct Connection<S, U>
+pub struct Connection<U>
 where
-    S: UTPStream,
-    U: UTP<S>,
+    U: UTP,
 {
     utp: Arc<U>,
-    pub pmc: PMC<S>,
+    pub pmc: PMC<U::Stream>,
 }
 
-impl<S, U> Connection<S, U>
+impl<U> Connection<U>
 where
-    S: UTPStream,
-    U: UTP<S>,
+    U: UTP,
 {
-    pub fn new(utp: Arc<U>, pmc: PMC<S>) -> Self {
+    pub fn new(utp: Arc<U>, pmc: PMC<U::Stream>) -> Self {
         Self { utp, pmc }
     }
 }

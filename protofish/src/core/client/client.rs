@@ -5,6 +5,7 @@ use bytes::Bytes;
 use crate::{
     constant::VERSION,
     core::common::{
+        connection::Connection,
         context::{ContextReader, ContextWriter},
         error::ConnectionError,
         pmc::PMC,
@@ -17,15 +18,18 @@ use crate::{
     utp::protocol::{UTP, UTPStream},
 };
 
-pub async fn connect<S: UTPStream>(utp: Arc<impl UTP<S>>) -> Result<(), ProtofishError> {
+pub async fn connect<U>(utp: Arc<U>) -> Result<Connection<U>, ProtofishError>
+where
+    U: UTP,
+{
     utp.connect().await?;
 
     let stream = utp.open_stream(IntegrityType::Reliable).await?;
     let pmc = PMC::new(false, stream);
 
-    let connection_token = client_handshake(pmc.create_context(), None).await?;
+    let _ = client_handshake(pmc.create_context(), None).await?;
 
-    Ok(())
+    Ok(Connection::new(utp.clone(), pmc))
 }
 
 async fn client_handshake<S: UTPStream>(
@@ -47,9 +51,9 @@ async fn client_handshake<S: UTPStream>(
         if server_hello.ok {
             Ok(server_hello
                 .connection_token
-                .ok_or(ProtofishError::Connection(
-                    ConnectionError::MalformedMessage,
-                ))?)
+                .ok_or(ProtofishError::Connection(ConnectionError::MalformedData(
+                    "connection token is not provided".into(),
+                )))?)
         } else {
             let msg = server_hello.message.unwrap_or("unknown error".to_string());
 
@@ -59,7 +63,7 @@ async fn client_handshake<S: UTPStream>(
         }
     } else {
         Err(ProtofishError::Connection(
-            ConnectionError::MalformedMessage,
+            ConnectionError::MalformedPayload("expected ServerHello".into(), server_hello),
         ))
     }
 }
@@ -71,7 +75,7 @@ mod tests {
 
     use crate::{
         constant::VERSION,
-        core::common::{client::client_handshake, pmc::PMC},
+        core::{client::client::client_handshake, common::pmc::PMC},
         schema::payload::schema::{Payload, ServerHello},
         utp::tests::stream::mock_pairs,
     };

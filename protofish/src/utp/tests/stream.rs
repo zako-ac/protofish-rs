@@ -62,12 +62,10 @@ impl UTPStream for MockUTPStream {
         Ok(())
     }
 
-    async fn receive(&self, data: &mut BytesMut) -> Result<usize, UTPError> {
-        let d = self.read_buffer(data.len()).await;
-        let len = d.len();
-        *data = BytesMut::from(d);
+    async fn receive(&self, len: usize) -> Result<Bytes, UTPError> {
+        let d = self.read_buffer(len).await;
 
-        Ok(len)
+        Ok(d)
     }
 
     async fn close(&self) -> Result<(), UTPError> {
@@ -76,9 +74,17 @@ impl UTPStream for MockUTPStream {
     }
 }
 
+// legacy compat
 pub fn mock_pairs() -> (MockUTPStream, MockUTPStream) {
     let mut x = MockUTPStream::new(0, None);
     let y = MockUTPStream::new(1, Some(x.clone()));
+    x.set_peer(Some(y.clone()));
+
+    (x, y)
+}
+pub fn mock_utp_stream_pairs(id: StreamId) -> (MockUTPStream, MockUTPStream) {
+    let mut x = MockUTPStream::new(id, None);
+    let y = MockUTPStream::new(id, Some(x.clone()));
     x.set_peer(Some(y.clone()));
 
     (x, y)
@@ -104,8 +110,7 @@ mod tests {
         .await
         .unwrap();
 
-        let mut b_data = BytesMut::zeroed(14);
-        b.receive(&mut b_data).await.unwrap();
+        let b_data = b.receive(14).await.unwrap();
 
         assert_eq!(b_data[13], 1);
     }
@@ -124,8 +129,7 @@ mod tests {
         .await
         .unwrap();
 
-        let mut a_data = BytesMut::zeroed(14);
-        a.receive(&mut a_data).await.unwrap();
+        let a_data = a.receive(14).await.unwrap();
 
         assert_eq!(a_data[13], 1);
     }

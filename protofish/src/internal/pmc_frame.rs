@@ -1,10 +1,10 @@
-use std::{io::Read, sync::Arc};
+use std::sync::Arc;
 
-use bytes::{Bytes, BytesMut};
+use bytes::Bytes;
 use dashmap::DashMap;
 use tokio::{
     sync::{
-        Mutex,
+        Mutex, Notify,
         mpsc::{self, Receiver, Sender},
     },
     task::JoinHandle,
@@ -21,6 +21,7 @@ pub struct PMCFrame<S: UTPStream> {
     utp_stream: Arc<S>,
     senders: Arc<DashMap<ContextId, Sender<Payload>>>,
     context_rx: Mutex<Receiver<Message>>,
+    shutdown_notify: Arc<Notify>,
     _task: JoinHandle<()>,
 }
 
@@ -28,51 +29,21 @@ impl<S: UTPStream> PMCFrame<S> {
     pub fn new(stream: Arc<S>) -> Self {
         let senders: Arc<DashMap<ContextId, Sender<Payload>>> = Default::default();
         let (context_tx, context_rx) = mpsc::channel(CHANNEL_BUFFER);
+        let shutdown_notify = Arc::new(Notify::new());
 
         let _task = {
             let stream = stream.clone();
             let senders = senders.clone();
+            let notify = shutdown_notify.clone();
 
             tokio::spawn(async move {
                 loop {
-                    match recv_frame(stream.as_ref()).await {
-                        Ok(message_option) => {
-                            if let Some(message) = message_option {
-                                if let Some(sender) = senders.get(&message.context_id) {
-                                    tokio::spawn({
-                                        let sender = sender.clone();
-                                        async move {
-                                            if let Err(e) = sender.send(message.payload).await {
-                                                tracing::warn!(
-                                                    "UTP error while sending to the channel: {:?}",
-                                                    e
-                                                );
-                                            }
-                                        }
-                                    });
-                                } else {
-                                    tokio::spawn({
-                                        let context_tx = context_tx.clone();
-                                        async move {
-                                            if let Err(e) = context_tx.send(message).await {
-                                                tracing::warn!(
-                                                    "Send error while sending to the channel: {:?}",
-                                                    e
-                                                );
-                                            }
-                                        }
-                                    });
-                                }
-                            } else {
-                                break;
-                            }
-                        }
-                        Err(UTPError::Fatal(e)) => {
-                            tracing::error!("UTP receive failure: {}", e);
+                    tokio::select! {
+                        _ = notify.notified() => {
                             break;
                         }
-                        Err(UTPError::Warn(e)) => {
-                            tracing::warn!("UTP receive warn: {}", e);
+                        success = match_frame(stream.clone(), senders.clone(), context_tx.clone()) => {
+                            if !success {break;}
                         }
                     }
                 }
@@ -83,6 +54,7 @@ impl<S: UTPStream> PMCFrame<S> {
             utp_stream: stream,
             senders,
             context_rx: Mutex::new(context_rx),
+            shutdown_notify,
             _task,
         }
     }
@@ -104,6 +76,50 @@ impl<S: UTPStream> PMCFrame<S> {
     }
 }
 
+async fn match_frame(
+    stream: Arc<impl UTPStream>,
+    senders: Arc<DashMap<ContextId, Sender<Payload>>>,
+    context_tx: Sender<Message>,
+) -> bool {
+    match recv_frame(stream).await {
+        Ok(message_option) => {
+            if let Some(message) = message_option {
+                if let Some(sender) = senders.get(&message.context_id) {
+                    tokio::spawn({
+                        let sender = sender.clone();
+                        async move {
+                            if let Err(e) = sender.send(message.payload).await {
+                                tracing::warn!("UTP error while sending to the channel: {:?}", e);
+                            }
+                        }
+                    });
+                } else {
+                    tokio::spawn({
+                        let context_tx = context_tx.clone();
+                        async move {
+                            if let Err(e) = context_tx.send(message).await {
+                                tracing::warn!("Send error while sending to the channel: {:?}", e);
+                            }
+                        }
+                    });
+                }
+
+                true
+            } else {
+                false
+            }
+        }
+        Err(UTPError::Fatal(e)) => {
+            tracing::error!("UTP receive failure: {}", e);
+            false
+        }
+        Err(UTPError::Warn(e)) => {
+            tracing::warn!("UTP receive warn: {}", e);
+            true
+        }
+    }
+}
+
 pub async fn send_frame<S: UTPStream>(stream: &S, message: Message) -> Result<(), UTPError> {
     let buf = serialize_message(message);
 
@@ -117,17 +133,12 @@ pub async fn send_frame<S: UTPStream>(stream: &S, message: Message) -> Result<()
     Ok(())
 }
 
-async fn recv_frame<S: UTPStream>(stream: &S) -> Result<Option<Message>, UTPError> {
-    let mut len_bytes = BytesMut::zeroed(8);
-    stream.receive(&mut len_bytes).await?;
+async fn recv_frame<S: UTPStream>(stream: Arc<S>) -> Result<Option<Message>, UTPError> {
+    let len_bytes_slice = stream.receive(8).await?;
 
-    let len_bytes_slice = &len_bytes[..];
+    let len = u64::from_le_bytes(len_bytes_slice[..].try_into().unwrap());
 
-    let len = u64::from_le_bytes(len_bytes_slice.try_into().unwrap());
-    // .with_capacity(8) -> safe to unwrap
-
-    let mut buf = BytesMut::zeroed(len as usize);
-    stream.receive(&mut buf).await?;
+    let buf = stream.receive(len as usize).await?;
 
     let message = deserialize_message(&buf);
 

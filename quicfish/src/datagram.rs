@@ -1,32 +1,37 @@
 use bytes::Bytes;
-use std::collections::HashMap;
+use dashmap::DashMap;
 use std::sync::{Arc, Weak};
-use tokio::sync::{RwLock, mpsc};
+use tokio::sync::mpsc;
 
 use protofish::StreamId;
 
 pub struct DatagramRouter {
-    channels: RwLock<HashMap<StreamId, mpsc::UnboundedSender<Bytes>>>,
+    channels: DashMap<StreamId, mpsc::UnboundedSender<Bytes>>,
+    pending_receivers: DashMap<StreamId, mpsc::UnboundedReceiver<Bytes>>,
     connection: Weak<quinn::Connection>,
 }
 
 impl DatagramRouter {
     pub fn new(connection: Weak<quinn::Connection>) -> Arc<Self> {
         Arc::new(Self {
-            channels: RwLock::new(HashMap::new()),
+            channels: DashMap::new(),
+            pending_receivers: DashMap::new(),
             connection,
         })
     }
 
-    pub async fn register_stream(&self, id: StreamId) -> mpsc::UnboundedReceiver<Bytes> {
-        let (tx, rx) = mpsc::unbounded_channel();
-        self.channels.write().await.insert(id, tx);
-        println!("c: {:?}", self.channels);
-        rx
+    pub fn register_stream(&self, id: StreamId) -> mpsc::UnboundedReceiver<Bytes> {
+        if let Some((_, rx)) = self.pending_receivers.remove(&id) {
+            rx
+        } else {
+            let (tx, rx) = mpsc::unbounded_channel();
+            self.channels.insert(id, tx);
+            rx
+        }
     }
 
     pub async fn unregister_stream(&self, id: StreamId) {
-        self.channels.write().await.remove(&id);
+        self.channels.remove(&id);
     }
 
     pub async fn send_datagram(&self, id: StreamId, data: &Bytes) -> crate::error::Result<()> {
@@ -43,13 +48,13 @@ impl DatagramRouter {
     }
 
     pub async fn route_incoming(&self, datagram: Bytes) {
-        println!("1a, {:?}", self.channels);
         if let Some((stream_id, payload)) = Self::decode_datagram(datagram) {
-            println!("2a");
-            let channels = self.channels.read().await;
-            println!("3a: {} {:?}", stream_id, channels);
-            if let Some(tx) = channels.get(&stream_id) {
-                println!("4a");
+            if let Some(tx) = self.channels.get(&stream_id) {
+                let _ = tx.send(payload);
+            } else {
+                let (tx, rx) = mpsc::unbounded_channel();
+                self.pending_receivers.insert(stream_id, rx);
+
                 let _ = tx.send(payload);
             }
         }

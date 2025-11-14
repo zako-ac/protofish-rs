@@ -1,5 +1,7 @@
 pub mod error;
-pub mod protocol;
 
-#[cfg(test)]
-pub mod tests;
+mod protocol;
+pub use protocol::*;
+pub use tests::utp::mock_utp_pairs;
+
+pub(crate) mod tests;

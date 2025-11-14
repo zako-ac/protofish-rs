@@ -6,14 +6,14 @@ use crate::{
         server::handshake::server_handshake,
     },
     error::ProtofishError,
-    utp::protocol::{UTP, UTPEvent},
+    utp::{UTP, UTPEvent},
 };
 
 pub async fn accept<U>(utp: Arc<U>) -> Result<Connection<U>, ProtofishError>
 where
     U: UTP,
 {
-    let event = utp.next_event().await; // maybe timeout
+    let event = utp.next_event().await; // TODO maybe timeout
 
     if let UTPEvent::NewStream(id) = event {
         let stream = utp.wait_stream(id).await?;
@@ -21,7 +21,7 @@ where
 
         server_handshake(&pmc).await?;
 
-        Ok(Connection::new(utp.clone(), pmc))
+        Ok(Connection::new(pmc))
     } else {
         Err(ConnectionError::ClosedStream.into())
     }
@@ -31,12 +31,12 @@ where
 mod tests {
     use crate::{
         constant::VERSION,
-        core::{common::pmc::PMC, server::client_handle::accept},
+        core::{common::pmc::PMC, server::accept},
         schema::{
             common::schema::IntegrityType,
             payload::schema::{ClientHello, Payload},
         },
-        utp::{protocol::UTP, tests::utp::mock_utp_pairs},
+        utp::{UTP, tests::utp::mock_utp_pairs},
     };
 
     async fn imitate_handshake(resume_connection_token: Option<Vec<u8>>, assert_ok: bool) {

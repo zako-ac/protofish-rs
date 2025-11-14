@@ -75,6 +75,7 @@ impl UTPStream for MockUTPStream {
 }
 
 // legacy compat
+#[cfg(test)]
 pub fn mock_pairs() -> (MockUTPStream, MockUTPStream) {
     let mut x = MockUTPStream::new(0, None);
     let y = MockUTPStream::new(1, Some(x.clone()));
@@ -82,6 +83,7 @@ pub fn mock_pairs() -> (MockUTPStream, MockUTPStream) {
 
     (x, y)
 }
+
 pub fn mock_utp_stream_pairs(id: StreamId) -> (MockUTPStream, MockUTPStream) {
     let mut x = MockUTPStream::new(id, None);
     let y = MockUTPStream::new(id, Some(x.clone()));

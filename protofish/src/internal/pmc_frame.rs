@@ -5,30 +5,29 @@ use dashmap::DashMap;
 use tokio::{
     sync::{
         Mutex, Notify,
-        mpsc::{self, Receiver, Sender},
+        mpsc::{self, UnboundedReceiver, UnboundedSender},
     },
     task::JoinHandle,
 };
 
 use crate::{
-    constant::CHANNEL_BUFFER,
     internal::serialize::{deserialize_message, serialize_message},
     schema::payload::schema::{ContextId, Message, Payload},
-    utp::{error::UTPError, protocol::UTPStream},
+    utp::{UTPStream, error::UTPError},
 };
 
-pub struct PMCFrame<S: UTPStream> {
-    utp_stream: Arc<S>,
-    senders: Arc<DashMap<ContextId, Sender<Payload>>>,
-    context_rx: Mutex<Receiver<Message>>,
-    shutdown_notify: Arc<Notify>,
+type SenderMap = Arc<DashMap<ContextId, UnboundedSender<Payload>>>;
+
+pub struct PMCFrame {
+    senders: SenderMap,
+    context_rx: Mutex<UnboundedReceiver<Message>>,
     _task: JoinHandle<()>,
 }
 
-impl<S: UTPStream> PMCFrame<S> {
-    pub fn new(stream: Arc<S>) -> Self {
-        let senders: Arc<DashMap<ContextId, Sender<Payload>>> = Default::default();
-        let (context_tx, context_rx) = mpsc::channel(CHANNEL_BUFFER);
+impl PMCFrame {
+    pub fn new(stream: Arc<impl UTPStream>) -> Self {
+        let senders: SenderMap = Default::default();
+        let (context_tx, context_rx) = mpsc::unbounded_channel();
         let shutdown_notify = Arc::new(Notify::new());
 
         let _task = {
@@ -51,16 +50,22 @@ impl<S: UTPStream> PMCFrame<S> {
         };
 
         Self {
-            utp_stream: stream,
             senders,
             context_rx: Mutex::new(context_rx),
-            shutdown_notify,
             _task,
         }
     }
 
-    pub fn subscribe_context(&self, context_id: ContextId) -> Receiver<Payload> {
-        let (tx, rx) = mpsc::channel(CHANNEL_BUFFER);
+    pub fn subscribe_context(
+        &self,
+        context_id: ContextId,
+        initial_item: Option<Payload>,
+    ) -> UnboundedReceiver<Payload> {
+        let (tx, rx) = mpsc::unbounded_channel();
+
+        if let Some(item) = initial_item {
+            send_curried(tx.clone())(item);
+        }
 
         self.senders.insert(context_id, tx);
 
@@ -70,38 +75,20 @@ impl<S: UTPStream> PMCFrame<S> {
     pub async fn next_context_message(&self) -> Option<Message> {
         self.context_rx.lock().await.recv().await
     }
-
-    pub async fn send(&self, message: Message) -> Result<(), UTPError> {
-        send_frame(self.utp_stream.as_ref(), message).await
-    }
 }
 
 async fn match_frame(
     stream: Arc<impl UTPStream>,
-    senders: Arc<DashMap<ContextId, Sender<Payload>>>,
-    context_tx: Sender<Message>,
+    senders: SenderMap,
+    context_tx: UnboundedSender<Message>,
 ) -> bool {
     match recv_frame(stream).await {
         Ok(message_option) => {
             if let Some(message) = message_option {
                 if let Some(sender) = senders.get(&message.context_id) {
-                    tokio::spawn({
-                        let sender = sender.clone();
-                        async move {
-                            if let Err(e) = sender.send(message.payload).await {
-                                tracing::warn!("UTP error while sending to the channel: {:?}", e);
-                            }
-                        }
-                    });
+                    send_curried(sender.clone())(message.payload);
                 } else {
-                    tokio::spawn({
-                        let context_tx = context_tx.clone();
-                        async move {
-                            if let Err(e) = context_tx.send(message).await {
-                                tracing::warn!("Send error while sending to the channel: {:?}", e);
-                            }
-                        }
-                    });
+                    send_curried(context_tx)(message);
                 }
 
                 true
@@ -143,4 +130,13 @@ async fn recv_frame<S: UTPStream>(stream: Arc<S>) -> Result<Option<Message>, UTP
     let message = deserialize_message(&buf);
 
     Ok(message)
+}
+
+fn send_curried<T>(sender: impl Into<UnboundedSender<T>>) -> impl Fn(T) {
+    let sender = sender.into().clone();
+    move |data: T| {
+        if let Err(e) = sender.send(data) {
+            tracing::warn!("Send error while sending to the channel: {:?}", e);
+        }
+    }
 }

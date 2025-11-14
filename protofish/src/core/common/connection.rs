@@ -1,12 +1,15 @@
-use std::sync::Arc;
-
-use crate::{core::common::pmc::PMC, utp::protocol::UTP};
+use crate::{
+    core::common::{
+        arbitrary::{ArbContext, make_arbitrary},
+        pmc::PMC,
+    },
+    utp::UTP,
+};
 
 pub struct Connection<U>
 where
     U: UTP,
 {
-    utp: Arc<U>,
     pub pmc: PMC<U::Stream>,
 }
 
@@ -14,7 +17,17 @@ impl<U> Connection<U>
 where
     U: UTP,
 {
-    pub fn new(utp: Arc<U>, pmc: PMC<U::Stream>) -> Self {
-        Self { utp, pmc }
+    pub fn new(pmc: PMC<U::Stream>) -> Self {
+        Self { pmc }
+    }
+
+    pub fn new_arb(&self) -> ArbContext<U::Stream> {
+        let ctx = self.pmc.create_context();
+        make_arbitrary(ctx)
+    }
+
+    pub async fn next_arb(&self) -> Option<ArbContext<U::Stream>> {
+        let ctx = self.pmc.next_context().await?;
+        Some(make_arbitrary(ctx))
     }
 }

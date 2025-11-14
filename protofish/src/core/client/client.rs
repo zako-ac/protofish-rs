@@ -15,7 +15,7 @@ use crate::{
         common::schema::IntegrityType,
         payload::schema::{ClientHello, Payload},
     },
-    utp::protocol::{UTP, UTPStream},
+    utp::{UTP, UTPStream},
 };
 
 pub async fn connect<U>(utp: Arc<U>) -> Result<Connection<U>, ProtofishError>
@@ -29,7 +29,7 @@ where
 
     let _ = client_handshake(pmc.create_context(), None).await?;
 
-    Ok(Connection::new(utp.clone(), pmc))
+    Ok(Connection::new(pmc))
 }
 
 async fn client_handshake<S: UTPStream>(
@@ -88,7 +88,8 @@ mod tests {
         let client_pmc = PMC::new(false, client_stream);
 
         tokio::spawn(async move {
-            let (payload, (tx, _)) = server_pmc.next_context().await.unwrap();
+            let (tx, rx) = server_pmc.next_context().await.unwrap();
+            let payload = rx.read().await.unwrap();
 
             if let Payload::ClientHello(_) = payload {
                 tx.write(Payload::ServerHello(ServerHello {

@@ -26,4 +26,8 @@ mod error;
 mod internal;
 mod macros;
 mod schema;
-mod utp;
+pub mod utp;
+
+pub use core::client::connect;
+pub use core::common::arbitrary::*;
+pub use core::server::accept;

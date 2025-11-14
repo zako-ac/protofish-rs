@@ -1,12 +1,12 @@
 use std::sync::Arc;
 
-use tokio::sync::mpsc::Receiver;
+use tokio::sync::mpsc::UnboundedReceiver;
 
 use crate::{
     core::common::error::ConnectionError,
     internal::pmc_frame::send_frame,
     schema::payload::schema::{ContextId, Message, Payload},
-    utp::protocol::UTPStream,
+    utp::UTPStream,
 };
 
 pub struct ContextWriter<S: UTPStream> {
@@ -29,7 +29,7 @@ impl<S: UTPStream> ContextWriter<S> {
 }
 
 pub struct ContextReader {
-    pub(crate) receiver: tokio::sync::Mutex<Receiver<Payload>>,
+    pub(crate) receiver: tokio::sync::Mutex<UnboundedReceiver<Payload>>,
 }
 
 impl ContextReader {

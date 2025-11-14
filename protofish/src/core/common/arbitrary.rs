@@ -1,73 +1,58 @@
-use std::sync::Arc;
-
 use bytes::Bytes;
-use tokio::sync::{Mutex, mpsc::Receiver};
+use thiserror::Error;
 
 use crate::{
-    core::common::{context::Context, error::ConnectionError},
-    schema::{
-        common::schema::{IntegrityType, StreamCreateMeta},
-        payload::schema::{ArbitaryData, Payload, StreamOpen},
+    core::common::{
+        context::{Context, ContextReader, ContextWriter},
+        error::ConnectionError,
     },
-    utp::protocol::{UTP, UTPStream},
+    schema::payload::schema::{ArbitaryData, Payload},
+    utp::UTPStream,
 };
 
-pub struct ArbitraryContext<U>
-where
-    U: UTP,
-{
-    context: Context<U::Stream>,
-    utp: Arc<U>,
+pub type ArbContext<S> = (ArbContextWriter<S>, ArbContextReader);
 
-    message_rx: Mutex<Receiver<Bytes>>,
-    stream_rx: Mutex<Receiver<StreamOpen>>,
+pub struct ArbContextWriter<U: UTPStream> {
+    writer: ContextWriter<U>,
 }
 
-impl<U: UTP> ArbitraryContext<U> {
-    pub async fn send_message(&self, data: impl AsRef<[u8]>) -> Result<(), ConnectionError> {
-        let (ref tx, _) = self.context;
+pub struct ArbContextReader {
+    reader: ContextReader,
+}
 
-        tx.write(Payload::ArbitaryData(ArbitaryData {
-            content: Vec::from(data.as_ref()),
-        }))
-        .await?;
+#[derive(Debug, Error)]
+pub enum ArbError {
+    #[error("connection error: {0}")]
+    Connection(#[from] ConnectionError),
+
+    #[error("unexpected data: {0}")]
+    UnexpectedData(String),
+}
+
+impl<U: UTPStream> ArbContextWriter<U> {
+    pub async fn write(&self, content: Bytes) -> Result<(), ArbError> {
+        let payload = Payload::ArbitaryData(ArbitaryData {
+            content: content.into(),
+        });
+
+        self.writer.write(payload).await?;
 
         Ok(())
     }
+}
 
-    pub async fn recv_message(&self) -> Result<Bytes, ConnectionError> {
-        if let Some(msg) = self.message_rx.lock().await.recv().await {
-            Ok(msg)
+impl ArbContextReader {
+    pub async fn read(&self) -> Result<Bytes, ArbError> {
+        let data_got = self.reader.read().await?;
+
+        if let Payload::ArbitaryData(data) = data_got {
+            Ok(Bytes::from(data.content))
         } else {
-            Err(ConnectionError::ClosedStream)
+            Err(ArbError::UnexpectedData("expected ArbitaryData".into()))
         }
     }
+}
 
-    pub async fn create_stream(
-        &self,
-        integrity_type: IntegrityType,
-    ) -> Result<U::Stream, ConnectionError> {
-        // TODO: change stream to some AsyncRead wrapper
-        let (ref tx, _) = self.context;
-
-        let stream = self.utp.open_stream(integrity_type.clone()).await?;
-
-        let stream_open = StreamOpen {
-            stream_id: stream.id(),
-            meta: StreamCreateMeta { integrity_type },
-        };
-
-        tx.write(Payload::StreamOpen(stream_open)).await?;
-
-        Ok(stream)
-    }
-
-    pub async fn next_stream(&self) -> Result<U::Stream, ConnectionError> {
-        if let Some(meta) = self.stream_rx.lock().await.recv().await {
-            let stream = self.utp.wait_stream(meta.stream_id).await?;
-            Ok(stream)
-        } else {
-            Err(ConnectionError::ClosedStream)
-        }
-    }
+pub fn make_arbitrary<S: UTPStream>((writer, reader): Context<S>) -> ArbContext<S> {
+    (ArbContextWriter { writer }, ArbContextReader { reader })
 }

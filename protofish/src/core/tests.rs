@@ -1,5 +1,5 @@
 use crate::{
-    core::{client::client::connect, server::client_handle::accept},
+    core::{client::connect, server::accept},
     utp::tests::utp::mock_utp_pairs,
 };
 

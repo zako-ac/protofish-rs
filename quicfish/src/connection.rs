@@ -123,6 +123,7 @@ impl UTP for QuicUTP {
         loop {
             let streams = self.streams.read().await;
             if let Some(stream) = streams.get(&id) {
+                // TODO register datagram if it's unreliable
                 return Ok(stream.clone());
             }
             drop(streams);

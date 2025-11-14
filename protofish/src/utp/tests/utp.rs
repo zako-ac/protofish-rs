@@ -76,7 +76,7 @@ impl UTP for MockUTP {
         }
     }
 
-    async fn open_stream(&self, _: IntegrityType) -> Result<MockUTPStream, UTPError> {
+    async fn new_stream(&self, _: IntegrityType) -> Result<MockUTPStream, UTPError> {
         let id = self.id_counter.fetch_add(1, Ordering::Relaxed);
 
         let (a, b) = mock_utp_stream_pairs(id);
@@ -129,7 +129,7 @@ mod tests {
     };
 
     async fn open_stream_ab((a, b): (MockUTP, MockUTP)) -> (MockUTPStream, MockUTPStream) {
-        let s_a = a.open_stream(IntegrityType::Reliable).await.unwrap();
+        let s_a = a.new_stream(IntegrityType::Reliable).await.unwrap();
 
         let evt = b.next_event().await;
         let id = if let UTPEvent::NewStream(id) = evt {

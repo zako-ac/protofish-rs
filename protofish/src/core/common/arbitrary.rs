@@ -1,35 +1,27 @@
+use std::sync::Arc;
+
 use bytes::Bytes;
 use thiserror::Error;
 
 use crate::{
+    IntegrityType,
     core::common::{
         context::{Context, ContextReader, ContextWriter},
         error::ConnectionError,
+        stream::ProtofishStream,
     },
     schema::{ArbitaryData, Payload},
-    utp::UTPStream,
+    utp::{UTP, error::UTPError},
 };
 
 /// An arbitrary data context consisting of a writer and reader pair.
 ///
 /// This type provides a simplified interface for sending and receiving
 /// arbitrary binary data through a Protofish context.
-pub type ArbContext<S> = (ArbContextWriter<S>, ArbContextReader);
-
-/// Writer for arbitrary binary data within a context.
-///
-/// This wraps a `ContextWriter` and provides a convenient interface for
-/// sending raw bytes as `ArbitaryData` payloads.
-pub struct ArbContextWriter<U: UTPStream> {
-    writer: ContextWriter<U>,
-}
-
-/// Reader for arbitrary binary data within a context.
-///
-/// This wraps a `ContextReader` and automatically extracts bytes from
-/// `ArbitaryData` payloads.
-pub struct ArbContextReader {
+pub struct ArbContext<U: UTP> {
+    writer: ContextWriter<U::Stream>,
     reader: ContextReader,
+    utp: Arc<U>,
 }
 
 /// Errors that can occur during arbitrary data operations.
@@ -42,9 +34,13 @@ pub enum ArbError {
     /// Received a payload that was not `ArbitaryData`
     #[error("unexpected data: {0}")]
     UnexpectedData(String),
+
+    /// UTP Error
+    #[error("UTP error: {0}")]
+    UTP(#[from] UTPError),
 }
 
-impl<U: UTPStream> ArbContextWriter<U> {
+impl<U: UTP> ArbContext<U> {
     /// Writes arbitrary binary data to this context.
     ///
     /// The bytes will be wrapped in an `ArbitaryData` payload and sent
@@ -62,9 +58,7 @@ impl<U: UTPStream> ArbContextWriter<U> {
 
         Ok(())
     }
-}
 
-impl ArbContextReader {
     /// Reads arbitrary binary data from this context.
     ///
     /// This method expects the next payload to be `ArbitaryData` and
@@ -88,12 +82,34 @@ impl ArbContextReader {
             Err(ArbError::UnexpectedData("expected ArbitaryData".into()))
         }
     }
+
+    pub async fn wait_stream(&self) -> Result<ProtofishStream<U::Stream>, ArbError> {
+        let data_got = self.reader.read().await?;
+
+        if let Payload::StreamOpen(meta) = data_got {
+            let utp_stream = self.utp.wait_stream(meta.stream_id).await?;
+            Ok(ProtofishStream::new(utp_stream))
+        } else {
+            Err(ArbError::UnexpectedData("expected ArbitaryData".into()))
+        }
+    }
+    pub async fn new_stream(
+        &self,
+        integrity: IntegrityType,
+    ) -> Result<ProtofishStream<U::Stream>, ArbError> {
+        let stream = self.utp.new_stream(integrity).await?;
+        Ok(ProtofishStream::new(stream))
+    }
 }
 
 /// Converts a generic context into an arbitrary data context.
 ///
 /// This helper function wraps the context writer and reader with the
 /// arbitrary data interface.
-pub fn make_arbitrary<S: UTPStream>((writer, reader): Context<S>) -> ArbContext<S> {
-    (ArbContextWriter { writer }, ArbContextReader { reader })
+pub fn make_arbitrary<U: UTP>(utp: Arc<U>, (writer, reader): Context<U::Stream>) -> ArbContext<U> {
+    ArbContext {
+        utp,
+        writer,
+        reader,
+    }
 }

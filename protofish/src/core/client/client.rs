@@ -44,12 +44,12 @@ where
 {
     utp.connect().await?;
 
-    let stream = utp.open_stream(IntegrityType::Reliable).await?;
+    let stream = utp.new_stream(IntegrityType::Reliable).await?;
     let pmc = PMC::new(false, stream);
 
     let _ = client_handshake(pmc.create_context(), None).await?;
 
-    Ok(Connection::new(pmc))
+    Ok(Connection::new(utp.clone(), pmc))
 }
 
 async fn client_handshake<S: UTPStream>(

@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use crate::{
     core::common::{
         arbitrary::{ArbContext, make_arbitrary},
@@ -15,6 +17,8 @@ pub struct Connection<U>
 where
     U: UTP,
 {
+    utp: Arc<U>,
+
     /// The Primary Messaging Channel for this connection
     pub pmc: PMC<U::Stream>,
 }
@@ -23,8 +27,8 @@ impl<U> Connection<U>
 where
     U: UTP,
 {
-    pub fn new(pmc: PMC<U::Stream>) -> Self {
-        Self { pmc }
+    pub fn new(utp: Arc<U>, pmc: PMC<U::Stream>) -> Self {
+        Self { utp, pmc }
     }
 
     /// Creates a new arbitrary data context for sending messages.
@@ -36,9 +40,9 @@ where
     /// # Returns
     ///
     /// Returns an `ArbContext` containing a writer and reader for arbitrary binary data.
-    pub fn new_arb(&self) -> ArbContext<U::Stream> {
+    pub fn new_arb(&self) -> ArbContext<U> {
         let ctx = self.pmc.create_context();
-        make_arbitrary(ctx)
+        make_arbitrary(self.utp.clone(), ctx)
     }
 
     /// Waits for the next incoming arbitrary data context from the peer.
@@ -50,8 +54,8 @@ where
     ///
     /// Returns `Some(ArbContext)` when a new context arrives, or `None` if
     /// the connection is closed.
-    pub async fn next_arb(&self) -> Option<ArbContext<U::Stream>> {
+    pub async fn next_arb(&self) -> Option<ArbContext<U>> {
         let ctx = self.pmc.next_context().await?;
-        Some(make_arbitrary(ctx))
+        Some(make_arbitrary(self.utp.clone(), ctx))
     }
 }

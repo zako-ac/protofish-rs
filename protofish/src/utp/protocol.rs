@@ -81,7 +81,7 @@ pub trait UTP: Send + Sync + 'static {
     /// # Errors
     ///
     /// Returns an error if stream creation fails.
-    async fn open_stream(&self, integrity: IntegrityType) -> Result<Self::Stream, UTPError>;
+    async fn new_stream(&self, integrity: IntegrityType) -> Result<Self::Stream, UTPError>;
 
     /// Waits for a stream with the given ID to be ready.
     ///

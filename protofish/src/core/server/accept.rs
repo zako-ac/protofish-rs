@@ -45,7 +45,7 @@ where
 
         server_handshake(&pmc).await?;
 
-        Ok(Connection::new(pmc))
+        Ok(Connection::new(utp.clone(), pmc))
     } else {
         Err(ConnectionError::ClosedStream.into())
     }
@@ -64,7 +64,7 @@ mod tests {
         let (a, b) = mock_utp_pairs();
 
         tokio::spawn(async move {
-            let stream = b.open_stream(IntegrityType::Reliable).await.unwrap();
+            let stream = b.new_stream(IntegrityType::Reliable).await.unwrap();
             let pmc = PMC::new(false, stream);
 
             let (tx, rx) = pmc.create_context();

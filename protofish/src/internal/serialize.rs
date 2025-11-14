@@ -1,16 +1,12 @@
 use bytes::Bytes;
 use prost::Message;
 
-use crate::{
-    prost_generated::payload::v1,
-    schema::payload::schema::{self},
-};
+use crate::{prost_generated::payload::v1, schema};
 
 pub fn serialize_message(message: schema::Message) -> Bytes {
     let message_prost: v1::Message = message.into();
 
     let v = message_prost.encode_to_vec();
-    
 
     Bytes::copy_from_slice(&v)
 }
@@ -24,7 +20,7 @@ mod tests {
     use crate::{
         constant::VERSION,
         internal::serialize::{deserialize_message, serialize_message},
-        schema::payload::schema::{ClientHello, Message, Payload},
+        schema::{ClientHello, Message, Payload},
     };
 
     #[test]

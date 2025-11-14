@@ -11,7 +11,7 @@ use tokio::sync::{
 };
 
 use crate::{
-    schema::{common::schema::IntegrityType, payload::schema::StreamId},
+    schema::{IntegrityType, StreamId},
     utp::{
         error::UTPError,
         protocol::{UTP, UTPEvent},
@@ -118,7 +118,7 @@ mod tests {
     use bytes::{Bytes, BytesMut};
 
     use crate::{
-        schema::common::schema::IntegrityType,
+        schema::IntegrityType,
         utp::{
             protocol::{UTP, UTPEvent, UTPStream},
             tests::{

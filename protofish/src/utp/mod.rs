@@ -1,3 +1,5 @@
+//! UTP module provides an interface of UTP specifications.
+
 pub mod error;
 
 mod protocol;

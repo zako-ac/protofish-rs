@@ -5,7 +5,7 @@ use bytes::{Bytes, BytesMut};
 use tokio::sync::{Mutex, Notify};
 
 use crate::{
-    schema::payload::schema::StreamId,
+    schema::StreamId,
     utp::{error::UTPError, protocol::UTPStream},
 };
 

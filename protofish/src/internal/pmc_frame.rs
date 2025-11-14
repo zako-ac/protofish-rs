@@ -12,7 +12,7 @@ use tokio::{
 
 use crate::{
     internal::serialize::{deserialize_message, serialize_message},
-    schema::payload::schema::{ContextId, Message, Payload},
+    schema::{ContextId, Message, Payload},
     utp::{UTPStream, error::UTPError},
 };
 

@@ -11,13 +11,33 @@ use crate::{
         pmc::PMC,
     },
     error::ProtofishError,
-    schema::{
-        common::schema::IntegrityType,
-        payload::schema::{ClientHello, Payload},
-    },
+    schema::{ClientHello, IntegrityType, Payload},
     utp::{UTP, UTPStream},
 };
 
+/// Establishes a Protofish connection as a client.
+///
+/// This function performs the following steps:
+/// 1. Connects to the server via the provided UTP implementation
+/// 2. Opens a reliable stream for the Primary Messaging Channel (PMC)
+/// 3. Performs the client-side handshake by sending `ClientHello`
+/// 4. Returns a `Connection` if the handshake succeeds
+///
+/// # Arguments
+///
+/// * `utp` - An Arc-wrapped UTP implementation for the underlying transport
+///
+/// # Returns
+///
+/// Returns a `Connection` on successful handshake, or a `ProtofishError` if
+/// the connection or handshake fails.
+///
+/// # Errors
+///
+/// This function will return an error if:
+/// - The UTP connection fails
+/// - Opening the stream fails
+/// - The server rejects the handshake
 pub async fn connect<U>(utp: Arc<U>) -> Result<Connection<U>, ProtofishError>
 where
     U: UTP,
@@ -76,7 +96,7 @@ mod tests {
     use crate::{
         constant::VERSION,
         core::{client::client::client_handshake, common::pmc::PMC},
-        schema::payload::schema::{Payload, ServerHello},
+        schema::{Payload, ServerHello},
         utp::tests::stream::mock_pairs,
     };
 

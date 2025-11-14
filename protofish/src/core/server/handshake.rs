@@ -7,7 +7,7 @@ use crate::{
         server::token::generate_connection_token,
     },
     error::ProtofishError,
-    schema::payload::schema::{Payload, ServerHello},
+    schema::{Payload, ServerHello},
     utp::UTPStream,
 };
 

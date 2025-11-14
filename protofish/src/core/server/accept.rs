@@ -9,6 +9,30 @@ use crate::{
     utp::{UTP, UTPEvent},
 };
 
+/// Accepts an incoming Protofish connection as a server.
+///
+/// This function waits for a new stream from a client and performs the
+/// server-side handshake. It will:
+/// 1. Wait for a `NewStream` event from the UTP layer
+/// 2. Create a Primary Messaging Channel (PMC) for the stream
+/// 3. Perform the server-side handshake by receiving `ClientHello` and sending `ServerHello`
+/// 4. Return a `Connection` if the handshake succeeds
+///
+/// # Arguments
+///
+/// * `utp` - An Arc-wrapped UTP implementation for the underlying transport
+///
+/// # Returns
+///
+/// Returns a `Connection` on successful handshake, or a `ProtofishError` if
+/// no stream arrives or the handshake fails.
+///
+/// # Errors
+///
+/// This function will return an error if:
+/// - The UTP event is not a `NewStream`
+/// - Waiting for the stream fails
+/// - The handshake validation fails
 pub async fn accept<U>(utp: Arc<U>) -> Result<Connection<U>, ProtofishError>
 where
     U: UTP,
@@ -32,10 +56,7 @@ mod tests {
     use crate::{
         constant::VERSION,
         core::{common::pmc::PMC, server::accept},
-        schema::{
-            common::schema::IntegrityType,
-            payload::schema::{ClientHello, Payload},
-        },
+        schema::{ClientHello, IntegrityType, Payload},
         utp::{UTP, tests::utp::mock_utp_pairs},
     };
 

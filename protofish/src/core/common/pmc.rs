@@ -8,7 +8,7 @@ use crate::{
         counter::ContextCounter,
     },
     internal::pmc_frame::PMCFrame,
-    schema::payload::schema::Payload,
+    schema::Payload,
     utp::UTPStream,
 };
 
@@ -67,9 +67,7 @@ where
 #[cfg(test)]
 mod tests {
 
-    use crate::{
-        core::common::pmc::PMC, schema::payload::schema::Payload, utp::tests::stream::mock_pairs,
-    };
+    use crate::{core::common::pmc::PMC, schema::Payload, utp::tests::stream::mock_pairs};
 
     #[tokio::test]
     async fn test_pmc_mock_pair() {

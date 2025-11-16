@@ -119,7 +119,6 @@ pub fn mock_utp_pairs() -> (MockUTP, MockUTP) {
 
 #[cfg(test)]
 mod tests {
-    use bytes::{Bytes, BytesMut};
 
     use crate::{
         schema::IntegrityType,
@@ -148,11 +147,12 @@ mod tests {
     }
 
     async fn check_stream_uni((a, b): (MockUTPStream, MockUTPStream)) {
-        let bytes = BytesMut::zeroed(9).iter().map(|e| e + 2).collect::<Bytes>();
+        let bytes = vec![0; 9].iter().map(|e| e + 2).collect::<Vec<_>>();
 
         a.send(&bytes).await.unwrap();
 
-        let recv_bytes = b.receive(9).await.unwrap();
+        let mut recv_bytes = vec![0; 9];
+        b.receive(&mut recv_bytes).await.unwrap();
 
         assert_eq!(recv_bytes[0], 2);
     }

@@ -1,14 +1,11 @@
-use bytes::Bytes;
 use prost::Message;
 
 use crate::{prost_generated::payload::v1, schema};
 
-pub fn serialize_message(message: schema::Message) -> Bytes {
+pub fn serialize_message(message: schema::Message) -> Vec<u8> {
     let message_prost: v1::Message = message.into();
 
-    let v = message_prost.encode_to_vec();
-
-    Bytes::copy_from_slice(&v)
+    message_prost.encode_to_vec()
 }
 
 pub fn deserialize_message(buf: &[u8]) -> Option<schema::Message> {

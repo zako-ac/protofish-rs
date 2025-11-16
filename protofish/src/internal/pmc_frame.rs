@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use bytes::Bytes;
 use dashmap::DashMap;
 use tokio::{
     sync::{
@@ -112,7 +111,6 @@ pub async fn send_frame<S: UTPStream>(stream: &S, message: Message) -> Result<()
 
     let len: u64 = buf.len() as u64;
     let len_bytes = len.to_le_bytes();
-    let len_bytes = Bytes::copy_from_slice(&len_bytes);
 
     stream.send(&len_bytes).await?;
     stream.send(&buf).await?;
@@ -121,11 +119,13 @@ pub async fn send_frame<S: UTPStream>(stream: &S, message: Message) -> Result<()
 }
 
 async fn recv_frame<S: UTPStream>(stream: Arc<S>) -> Result<Option<Message>, UTPError> {
-    let len_bytes_slice = stream.receive(8).await?;
+    let mut len_bytes_slice = vec![0; 8];
+    stream.receive(&mut len_bytes_slice).await?;
 
     let len = u64::from_le_bytes(len_bytes_slice[..].try_into().unwrap());
 
-    let buf = stream.receive(len as usize).await?;
+    let mut buf = vec![0; len as usize];
+    stream.receive(&mut buf).await?;
 
     let message = deserialize_message(&buf);
 

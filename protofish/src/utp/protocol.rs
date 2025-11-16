@@ -1,5 +1,4 @@
 use async_trait::async_trait;
-use bytes::Bytes;
 
 use crate::{
     schema::{IntegrityType, StreamId},
@@ -24,7 +23,7 @@ pub trait UTPStream: Send + Sync + Unpin + 'static {
     /// # Errors
     ///
     /// Returns an error if the send operation fails.
-    async fn send(&self, data: &Bytes) -> Result<(), UTPError>;
+    async fn send(&self, data: &[u8]) -> Result<(), UTPError>;
 
     /// Receives binary data from this stream.
     ///
@@ -35,7 +34,7 @@ pub trait UTPStream: Send + Sync + Unpin + 'static {
     /// # Errors
     ///
     /// Returns an error if the receive operation fails.
-    async fn receive(&self, len: usize) -> Result<Bytes, UTPError>;
+    async fn receive(&self, data: &mut [u8]) -> Result<(), UTPError>;
 
     /// Closes this stream.
     ///

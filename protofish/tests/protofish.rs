@@ -1,8 +1,13 @@
+use std::time::Duration;
+
 use protofish::{
     IntegrityType, accept, connect,
     utp::{self, UTP},
 };
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    time::sleep,
+};
 
 #[tokio::test]
 async fn test_protofish() {
@@ -26,6 +31,7 @@ async fn client_run<U: UTP>(utp: U) {
     stream.write_all(b"muffinmuffin").await.unwrap();
 
     tokio::task::yield_now().await;
+    sleep(Duration::from_secs(1)).await;
 
     let mut got = vec![0u8; 8];
     stream.read_exact(&mut got).await.unwrap();

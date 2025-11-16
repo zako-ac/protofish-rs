@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use bytes::Bytes;
 use thiserror::Error;
 
 use crate::{
@@ -49,7 +48,7 @@ impl<U: UTP> ArbContext<U> {
     /// # Errors
     ///
     /// Returns an error if the underlying write operation fails.
-    pub async fn write(&self, content: Bytes) -> Result<(), ArbError> {
+    pub async fn write(&self, content: Vec<u8>) -> Result<(), ArbError> {
         let payload = Payload::ArbitaryData(ArbitaryData {
             content: content.into(),
         });
@@ -73,11 +72,11 @@ impl<U: UTP> ArbContext<U> {
     ///
     /// Returns `ArbError::UnexpectedData` if a non-`ArbitaryData` payload
     /// is received, or `ArbError::Connection` if the read fails.
-    pub async fn read(&self) -> Result<Bytes, ArbError> {
+    pub async fn read(&self) -> Result<Vec<u8>, ArbError> {
         let data_got = self.reader.read().await?;
 
         if let Payload::ArbitaryData(data) = data_got {
-            Ok(Bytes::from(data.content))
+            Ok(data.content)
         } else {
             Err(ArbError::UnexpectedData("expected ArbitaryData".into()))
         }

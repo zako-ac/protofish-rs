@@ -19,3 +19,6 @@ proptest = "1"
 criterion = { version = "0.5", features = ["async_tokio", "html_reports"] }
 anyhow = "1"
 
+[[bench]]
+name = "throughput"
+harness = false

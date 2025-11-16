@@ -1,5 +1,3 @@
-use bytes::Bytes;
-
 use crate::{
     constant::VERSION,
     core::{
@@ -28,7 +26,7 @@ pub async fn server_handshake<S: UTPStream>(pmc: &PMC<S>) -> Result<(), Protofis
 
 async fn accept_client<S: UTPStream>(
     ctx: Context<S>,
-    connection_token: Bytes,
+    connection_token: Vec<u8>,
 ) -> Result<(), ProtofishError> {
     let (tx, _) = ctx;
 

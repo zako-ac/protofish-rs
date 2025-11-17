@@ -11,10 +11,9 @@ use crate::{
 /// A UTP stream is an independent logical channel for binary data transmission.
 /// Streams can be either reliable (lossless) or unreliable (lossy) based on
 /// the `IntegrityType` used when opening the stream.
-#[async_trait]
-pub trait UTPStream: Send + Sync + Unpin + 'static {
-    type StreamRead: AsyncRead;
-    type StreamWrite: AsyncWrite;
+pub trait UTPStream: Send + Sync + 'static {
+    type StreamRead: AsyncRead + Unpin + Send;
+    type StreamWrite: AsyncWrite + Unpin + Send;
 
     /// Returns the unique identifier for this stream.
     fn id(&self) -> StreamId;
@@ -25,13 +24,6 @@ pub trait UTPStream: Send + Sync + Unpin + 'static {
     fn reader(&self) -> Self::StreamRead;
 
     fn writer(&self) -> Self::StreamWrite;
-
-    /// Closes this stream.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the close operation fails.
-    async fn close(&self) -> Result<(), UTPError>;
 }
 
 /// Trait defining the Upstream Transport Protocol (UTP) interface.

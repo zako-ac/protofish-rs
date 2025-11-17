@@ -10,4 +10,7 @@ pub enum UTPError {
     /// Fatal error that prevents further operation
     #[error("UTP unknown fatal {0}")]
     Fatal(String),
+
+    #[error("UTP IO error {0}")]
+    Io(#[from] std::io::Error),
 }

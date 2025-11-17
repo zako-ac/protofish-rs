@@ -97,12 +97,12 @@ mod tests {
         constant::VERSION,
         core::{client::client::client_handshake, common::pmc::PMC},
         schema::{Payload, ServerHello},
-        utp::tests::stream::mock_pairs,
+        utp::tests::stream::mock_utp_stream_pairs,
     };
 
     #[tokio::test]
     async fn test_client_handshake_ok() {
-        let (client_stream, server_stream) = mock_pairs();
+        let (client_stream, server_stream) = mock_utp_stream_pairs(0);
 
         let server_pmc = PMC::new(true, server_stream);
         let client_pmc = PMC::new(false, client_stream);

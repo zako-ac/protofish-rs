@@ -1,118 +1,98 @@
-use bytes::Bytes;
+use std::sync::Arc;
+
+use bytes::{Bytes, BytesMut};
 use dashmap::DashMap;
-use std::sync::{Arc, Weak};
-use tokio::sync::mpsc;
-
 use protofish::StreamId;
+use tokio::io::{AsyncWriteExt, ReadHalf, SimplexStream, WriteHalf};
 
+#[derive(Clone)]
 pub struct DatagramRouter {
-    channels: DashMap<StreamId, mpsc::UnboundedSender<Bytes>>,
-    pending_receivers: DashMap<StreamId, mpsc::UnboundedReceiver<Bytes>>,
-    connection: Weak<quinn::Connection>,
+    conn: Arc<quinn::Connection>,
+    channels: Arc<DashMap<StreamId, WriteHalf<SimplexStream>>>,
+    pending_readers: Arc<DashMap<StreamId, ReadHalf<SimplexStream>>>,
 }
 
 impl DatagramRouter {
-    pub fn new(connection: Weak<quinn::Connection>) -> Arc<Self> {
-        Arc::new(Self {
-            channels: DashMap::new(),
-            pending_receivers: DashMap::new(),
-            connection,
-        })
-    }
-
-    pub fn register_stream(&self, id: StreamId) -> mpsc::UnboundedReceiver<Bytes> {
-        if let Some((_, rx)) = self.pending_receivers.remove(&id) {
-            rx
-        } else {
-            let (tx, rx) = mpsc::unbounded_channel();
-            self.channels.insert(id, tx);
-            rx
+    pub fn new(conn: Arc<quinn::Connection>) -> Self {
+        Self {
+            conn,
+            channels: Default::default(),
+            pending_readers: Default::default(),
         }
     }
 
-    pub async fn unregister_stream(&self, id: StreamId) {
-        self.channels.remove(&id);
+    pub fn register(&self, stream_id: StreamId) -> ReadHalf<SimplexStream> {
+        if let Some((_, read_half)) = self.pending_readers.remove(&stream_id) {
+            read_half
+        } else {
+            let (read_half, write_half) = tokio::io::simplex(1024);
+
+            self.channels.insert(stream_id, write_half);
+
+            read_half
+        }
     }
 
-    pub async fn send_datagram(&self, id: StreamId, data: &Bytes) -> crate::error::Result<()> {
-        let conn = self
-            .connection
-            .upgrade()
-            .ok_or(crate::error::Error::NotConnected)?;
+    fn register_lazy_writer(&self, stream_id: StreamId) {
+        if !self.channels.contains_key(&stream_id) {
+            let (read_half, write_half) = tokio::io::simplex(1024);
+            self.channels.insert(stream_id, write_half);
+            self.pending_readers.insert(stream_id, read_half);
+        }
+    }
 
-        let datagram = Self::encode_datagram(id, data);
-        conn.send_datagram(datagram)
-            .map_err(|e| crate::error::Error::Datagram(e.to_string()))?;
+    pub fn write(&self, stream_id: StreamId, data: Bytes) -> crate::error::Result<()> {
+        let id_bytes = stream_id.to_le_bytes();
+
+        let mut data_bytes = BytesMut::zeroed(id_bytes.len());
+        data_bytes.copy_from_slice(&id_bytes);
+        data_bytes.extend(data);
+
+        self.conn.send_datagram(data_bytes.freeze())?;
+        Ok(())
+    }
+
+    async fn route_datagram(&self, stream_id: StreamId, data: &Bytes) -> crate::error::Result<()> {
+        self.register_lazy_writer(stream_id);
+        let Some(mut channel) = self.channels.get_mut(&stream_id) else {
+            return Err(crate::error::Error::StreamClosed);
+        };
+
+        channel.write(data).await?;
 
         Ok(())
     }
 
-    pub async fn route_incoming(&self, datagram: Bytes) {
-        if let Some((stream_id, payload)) = Self::decode_datagram(datagram) {
-            if let Some(tx) = self.channels.get(&stream_id) {
-                let _ = tx.send(payload);
-            } else {
-                let (tx, rx) = mpsc::unbounded_channel();
-                self.pending_receivers.insert(stream_id, rx);
+    async fn run_listener(&self) -> crate::error::Result<()> {
+        loop {
+            match self.conn.read_datagram().await {
+                Ok(data) => {
+                    if data.len() < 8 {
+                        continue;
+                    }
 
-                let _ = tx.send(payload);
+                    let mut id_bytes = [0u8; 8];
+                    id_bytes.copy_from_slice(&data[..8]);
+                    let stream_id = u64::from_le_bytes(id_bytes);
+
+                    let payload = data.slice(8..);
+                    self.route_datagram(stream_id, &payload).await?;
+                }
+                Err(err) => {
+                    break Err(crate::error::Error::from(err));
+                }
             }
         }
     }
 
-    fn encode_datagram(id: StreamId, data: &Bytes) -> Bytes {
-        let mut buf = Vec::with_capacity(8 + data.len());
-        buf.extend_from_slice(&id.to_be_bytes());
-        buf.extend_from_slice(data);
-        Bytes::from(buf)
-    }
-
-    fn decode_datagram(datagram: Bytes) -> Option<(StreamId, Bytes)> {
-        if datagram.len() < 8 {
-            return None;
-        }
-
-        let mut id_bytes = [0u8; 8];
-        id_bytes.copy_from_slice(&datagram[..8]);
-        let stream_id = u64::from_be_bytes(id_bytes);
-
-        let payload = datagram.slice(8..);
-        Some((stream_id, payload))
-    }
-
-    pub fn spawn_listener(self: Arc<Self>, conn: quinn::Connection) {
+    pub fn spawn_listener(&self) {
+        let self_c = self.clone();
         tokio::spawn(async move {
             loop {
-                match conn.read_datagram().await {
-                    Ok(data) => {
-                        self.route_incoming(data).await;
-                    }
-                    Err(_) => break,
+                if let Err(e) = self_c.run_listener().await {
+                    tracing::warn!("datagram listener error: {:?}", e);
                 }
             }
         });
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_datagram_encoding() {
-        let id: StreamId = 12345;
-        let data = Bytes::from_static(b"hello world");
-
-        let encoded = DatagramRouter::encode_datagram(id, &data);
-        let (decoded_id, decoded_data) = DatagramRouter::decode_datagram(encoded).unwrap();
-
-        assert_eq!(decoded_id, id);
-        assert_eq!(decoded_data, data);
-    }
-
-    #[test]
-    fn test_datagram_decode_too_short() {
-        let short_data = Bytes::from_static(&[1, 2, 3]);
-        assert!(DatagramRouter::decode_datagram(short_data).is_none());
     }
 }

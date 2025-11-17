@@ -17,7 +17,7 @@ pub struct QuicUTP {
     next_stream_id: AtomicU64,
     event_tx: mpsc::UnboundedSender<UTPEvent>,
     event_rx: Arc<Mutex<mpsc::UnboundedReceiver<UTPEvent>>>,
-    datagram_router: Arc<DatagramRouter>,
+    datagram_router: DatagramRouter,
 }
 
 impl QuicUTP {
@@ -25,7 +25,7 @@ impl QuicUTP {
         let (event_tx, event_rx) = mpsc::unbounded_channel();
         let connection = Arc::new(connection);
         let streams = Arc::new(DashMap::new());
-        let datagram_router = DatagramRouter::new(Arc::downgrade(&connection));
+        let datagram_router = DatagramRouter::new(connection.clone());
 
         let instance = Self {
             connection: Arc::clone(&connection),
@@ -33,19 +33,17 @@ impl QuicUTP {
             next_stream_id: AtomicU64::new(0),
             event_tx,
             event_rx: Arc::new(Mutex::new(event_rx)),
-            datagram_router: Arc::clone(&datagram_router),
+            datagram_router: datagram_router.clone(),
         };
 
         instance.spawn_stream_listener();
-        datagram_router.spawn_listener((*connection).clone());
+        datagram_router.spawn_listener();
 
         instance
     }
 
     fn add_unreliable_stream(&self, stream_id: StreamId) -> QuicUTPStream {
-        let recv_queue = self.datagram_router.register_stream(stream_id);
-        let stream =
-            QuicUTPStream::new_unreliable(stream_id, Arc::clone(&self.datagram_router), recv_queue);
+        let stream = QuicUTPStream::new_unreliable(stream_id, self.datagram_router.clone());
 
         self.streams.insert(stream_id, stream.clone());
 

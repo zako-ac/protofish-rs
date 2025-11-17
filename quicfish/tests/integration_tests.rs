@@ -64,11 +64,11 @@ async fn test_reliable_stream() {
             let conn = protofish::accept(utp).await.unwrap();
 
             let arb = conn.next_arb().await.unwrap();
-            let mut stream = arb.wait_stream().await.unwrap();
+            let stream = arb.wait_stream().await.unwrap();
 
             let mut buf = vec![2; 5];
-            stream.read_exact(&mut buf).await.unwrap();
-            stream.write(&buf).await.unwrap();
+            stream.reader().read_exact(&mut buf).await.unwrap();
+            stream.writer().write(&buf).await.unwrap();
 
             return true;
         }
@@ -88,13 +88,13 @@ async fn test_reliable_stream() {
     let client_utp = Arc::new(QuicUTP::new(conn));
     let client_conn = protofish::connect(client_utp).await.unwrap();
     let arb = client_conn.new_arb();
-    let mut stream = arb.new_stream(IntegrityType::Reliable).await.unwrap();
+    let stream = arb.new_stream(IntegrityType::Reliable).await.unwrap();
 
     let test_data = Bytes::from_static(b"hello");
-    stream.write(&test_data).await.unwrap();
+    stream.writer().write(&test_data).await.unwrap();
 
     let mut buf = vec![2; 5];
-    stream.read_exact(&mut buf).await.unwrap();
+    stream.reader().read_exact(&mut buf).await.unwrap();
     assert_eq!(buf, test_data);
 
     let server_result = timeout(Duration::from_secs(2), server_handle)
@@ -123,15 +123,15 @@ async fn test_unreliable_stream() {
 
             let arb = conn.next_arb().await.unwrap();
 
-            let mut stream = arb.wait_stream().await.unwrap();
+            let stream = arb.wait_stream().await.unwrap();
             let mut buf = vec![2; 100];
 
-            timeout(Duration::from_secs(2), stream.read_exact(&mut buf))
+            timeout(Duration::from_secs(2), stream.reader().read_exact(&mut buf))
                 .await
                 .expect("Receive timeout")
                 .unwrap();
 
-            stream.write(&buf).await.unwrap();
+            stream.writer().write(&buf).await.unwrap();
 
             return true;
         }
@@ -152,16 +152,19 @@ async fn test_unreliable_stream() {
     let client_conn = protofish::connect(client_utp).await.unwrap();
     let arb = client_conn.new_arb();
 
-    let mut stream = arb.new_stream(IntegrityType::Unreliable).await.unwrap();
+    let stream = arb.new_stream(IntegrityType::Unreliable).await.unwrap();
 
     let test_data = vec![1u8; 200];
-    stream.write(&test_data).await.unwrap();
+    stream.writer().write(&test_data).await.unwrap();
 
     let mut received = vec![2u8; 100];
-    timeout(Duration::from_secs(2), stream.read_exact(&mut received))
-        .await
-        .expect("Receive timeout")
-        .unwrap();
+    timeout(
+        Duration::from_secs(2),
+        stream.reader().read_exact(&mut received),
+    )
+    .await
+    .expect("Receive timeout")
+    .unwrap();
 
     assert!(received.iter().all(|x| *x == 1));
 
@@ -189,11 +192,11 @@ async fn test_multiple_streams() {
             for _ in 0..3 {
                 let arb = conn.next_arb().await.unwrap();
 
-                let mut stream = arb.wait_stream().await.unwrap();
+                let stream = arb.wait_stream().await.unwrap();
 
                 let mut data = vec![2u8; 10];
-                stream.read_exact(&mut data).await.unwrap();
-                stream.write(&data).await.unwrap();
+                stream.reader().read_exact(&mut data).await.unwrap();
+                stream.writer().write(&data).await.unwrap();
             }
 
             tokio::time::sleep(Duration::from_secs(1)).await;
@@ -223,13 +226,13 @@ async fn test_multiple_streams() {
         let arb = conn.new_arb();
 
         let handle = tokio::spawn(async move {
-            let mut stream = arb.new_stream(IntegrityType::Reliable).await.unwrap();
+            let stream = arb.new_stream(IntegrityType::Reliable).await.unwrap();
 
             let test_data = [5u8; 10];
-            stream.write(&test_data).await.unwrap();
+            stream.writer().write(&test_data).await.unwrap();
 
             let mut received = vec![9u8; 10];
-            stream.read_exact(&mut received).await.unwrap();
+            stream.reader().read_exact(&mut received).await.unwrap();
             assert_eq!(received, test_data);
         });
         handles.push(handle);

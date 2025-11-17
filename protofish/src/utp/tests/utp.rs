@@ -119,12 +119,15 @@ pub fn mock_utp_pairs() -> (MockUTP, MockUTP) {
 
 #[cfg(test)]
 mod tests {
+
     use bytes::{Bytes, BytesMut};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     use crate::{
         schema::IntegrityType,
         utp::{
-            protocol::{UTP, UTPEvent, UTPStream},
+            UTPStream,
+            protocol::{UTP, UTPEvent},
             tests::{
                 stream::MockUTPStream,
                 utp::{MockUTP, mock_utp_pairs},
@@ -150,9 +153,10 @@ mod tests {
     async fn check_stream_uni((a, b): (MockUTPStream, MockUTPStream)) {
         let bytes = BytesMut::zeroed(9).iter().map(|e| e + 2).collect::<Bytes>();
 
-        a.send(&bytes).await.unwrap();
+        a.writer().write_all(&bytes).await.unwrap();
 
-        let recv_bytes = b.receive(9).await.unwrap();
+        let mut recv_bytes = vec![0; 9];
+        b.reader().read_exact(&mut recv_bytes).await.unwrap();
 
         assert_eq!(recv_bytes[0], 2);
     }

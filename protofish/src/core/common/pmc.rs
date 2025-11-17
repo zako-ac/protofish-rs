@@ -67,11 +67,13 @@ where
 #[cfg(test)]
 mod tests {
 
-    use crate::{core::common::pmc::PMC, schema::Payload, utp::tests::stream::mock_pairs};
+    use crate::{
+        core::common::pmc::PMC, schema::Payload, utp::tests::stream::mock_utp_stream_pairs,
+    };
 
     #[tokio::test]
     async fn test_pmc_mock_pair() {
-        let (a, b) = mock_pairs();
+        let (a, b) = mock_utp_stream_pairs(0);
 
         let pmc_a = PMC::new(true, a);
         let pmc_b = PMC::new(false, b);

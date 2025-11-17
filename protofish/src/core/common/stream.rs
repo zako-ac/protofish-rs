@@ -1,7 +1,19 @@
-use crate::schema::{common::schema::IntegrityType, payload::schema::StreamId};
+use crate::utp::UTPStream;
 
-#[derive(Clone, Debug)]
-pub struct Stream {
-    pub stream_id: StreamId,
-    pub integrity: IntegrityType,
+pub struct ProtofishStream<U: UTPStream> {
+    stream: U,
+}
+
+impl<U: UTPStream> ProtofishStream<U> {
+    pub(crate) fn new(stream: U) -> Self {
+        Self { stream }
+    }
+
+    pub fn reader(&self) -> U::StreamRead {
+        self.stream.reader()
+    }
+
+    pub fn writer(&self) -> U::StreamWrite {
+        self.stream.writer()
+    }
 }

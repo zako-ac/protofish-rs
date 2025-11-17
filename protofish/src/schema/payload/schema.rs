@@ -1,6 +1,6 @@
 use bytes::Bytes;
 
-use crate::schema::common::schema::{IntegrityType, Version};
+use crate::schema::{IntegrityType, Version};
 
 pub type ContextId = u64;
 pub type StreamId = u64;
@@ -42,14 +42,14 @@ pub struct ServerHello {
 
 #[derive(Debug, Clone)]
 pub struct Error {
-    pub error_type: crate::schema::common::schema::ErrorType,
+    pub error_type: crate::schema::ErrorType,
     pub message: String,
 }
 
 #[derive(Debug, Clone)]
 pub struct StreamOpen {
     pub stream_id: StreamId,
-    pub meta: crate::schema::common::schema::StreamCreateMeta,
+    pub meta: crate::schema::StreamCreateMeta,
 }
 
 #[derive(Debug, Clone)]

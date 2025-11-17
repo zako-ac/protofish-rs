@@ -1,5 +1,9 @@
-pub mod error;
-pub mod protocol;
+//! UTP module provides an interface of UTP specifications.
 
-#[cfg(test)]
-pub mod tests;
+pub mod error;
+
+mod protocol;
+pub use protocol::*;
+pub use tests::utp::mock_utp_pairs;
+
+pub(crate) mod tests;

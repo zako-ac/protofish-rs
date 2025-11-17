@@ -5,27 +5,51 @@ use bytes::Bytes;
 use crate::{
     constant::VERSION,
     core::common::{
+        connection::Connection,
         context::{ContextReader, ContextWriter},
         error::ConnectionError,
         pmc::PMC,
     },
     error::ProtofishError,
-    schema::{
-        common::schema::IntegrityType,
-        payload::schema::{ClientHello, Payload},
-    },
-    utp::protocol::{UTP, UTPStream},
+    schema::{ClientHello, IntegrityType, Payload},
+    utp::{UTP, UTPStream},
 };
 
-pub async fn connect<S: UTPStream>(utp: Arc<impl UTP<S>>) -> Result<(), ProtofishError> {
+/// Establishes a Protofish connection as a client.
+///
+/// This function performs the following steps:
+/// 1. Connects to the server via the provided UTP implementation
+/// 2. Opens a reliable stream for the Primary Messaging Channel (PMC)
+/// 3. Performs the client-side handshake by sending `ClientHello`
+/// 4. Returns a `Connection` if the handshake succeeds
+///
+/// # Arguments
+///
+/// * `utp` - An Arc-wrapped UTP implementation for the underlying transport
+///
+/// # Returns
+///
+/// Returns a `Connection` on successful handshake, or a `ProtofishError` if
+/// the connection or handshake fails.
+///
+/// # Errors
+///
+/// This function will return an error if:
+/// - The UTP connection fails
+/// - Opening the stream fails
+/// - The server rejects the handshake
+pub async fn connect<U>(utp: Arc<U>) -> Result<Connection<U>, ProtofishError>
+where
+    U: UTP,
+{
     utp.connect().await?;
 
-    let stream = utp.open_stream(IntegrityType::Reliable).await?;
+    let stream = utp.new_stream(IntegrityType::Reliable).await?;
     let pmc = PMC::new(false, stream);
 
-    let connection_token = client_handshake(pmc.create_context(), None).await?;
+    let _ = client_handshake(pmc.create_context(), None).await?;
 
-    Ok(())
+    Ok(Connection::new(utp.clone(), pmc))
 }
 
 async fn client_handshake<S: UTPStream>(
@@ -47,9 +71,9 @@ async fn client_handshake<S: UTPStream>(
         if server_hello.ok {
             Ok(server_hello
                 .connection_token
-                .ok_or(ProtofishError::Connection(
-                    ConnectionError::MalformedMessage,
-                ))?)
+                .ok_or(ProtofishError::Connection(ConnectionError::MalformedData(
+                    "connection token is not provided".into(),
+                )))?)
         } else {
             let msg = server_hello.message.unwrap_or("unknown error".to_string());
 
@@ -59,7 +83,7 @@ async fn client_handshake<S: UTPStream>(
         }
     } else {
         Err(ProtofishError::Connection(
-            ConnectionError::MalformedMessage,
+            ConnectionError::MalformedPayload("expected ServerHello".into(), server_hello),
         ))
     }
 }
@@ -71,20 +95,21 @@ mod tests {
 
     use crate::{
         constant::VERSION,
-        core::common::{client::client_handshake, pmc::PMC},
-        schema::payload::schema::{Payload, ServerHello},
-        utp::tests::stream::mock_pairs,
+        core::{client::client::client_handshake, common::pmc::PMC},
+        schema::{Payload, ServerHello},
+        utp::tests::stream::mock_utp_stream_pairs,
     };
 
     #[tokio::test]
     async fn test_client_handshake_ok() {
-        let (client_stream, server_stream) = mock_pairs();
+        let (client_stream, server_stream) = mock_utp_stream_pairs(0);
 
         let server_pmc = PMC::new(true, server_stream);
         let client_pmc = PMC::new(false, client_stream);
 
         tokio::spawn(async move {
-            let (payload, (tx, _)) = server_pmc.next_context().await.unwrap();
+            let (tx, rx) = server_pmc.next_context().await.unwrap();
+            let payload = rx.read().await.unwrap();
 
             if let Payload::ClientHello(_) = payload {
                 tx.write(Payload::ServerHello(ServerHello {

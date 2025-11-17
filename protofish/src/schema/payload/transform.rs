@@ -1,6 +1,6 @@
 use crate::{
     prost_generated::common::v1 as common_v1, prost_generated::payload::v1 as payload_v1,
-    schema::common::schema as common_schema, schema::payload::schema as payload_schema,
+    schema as common_schema, schema::payload::schema as payload_schema,
 };
 
 impl From<payload_v1::Message> for payload_schema::Message {
@@ -252,7 +252,7 @@ impl From<common_schema::IntegrityType> for i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::schema::common::schema::{ErrorType, IntegrityType};
+    use crate::schema::{ErrorType, IntegrityType};
 
     #[test]
     fn test_message_conversion() {
@@ -418,4 +418,3 @@ mod tests {
         assert_eq!(converted_proto, proto_benchmark_start);
     }
 }
-

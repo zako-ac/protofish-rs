@@ -1,85 +1,52 @@
-use std::sync::Arc;
-
-use async_trait::async_trait;
-use bytes::{Bytes, BytesMut};
-use tokio::sync::{Mutex, Notify};
+use tokio::io::DuplexStream;
 
 use crate::{
-    schema::payload::schema::StreamId,
-    utp::{error::UTPError, protocol::UTPStream},
+    IntegrityType,
+    schema::StreamId,
+    utp::{protocol::UTPStream, tests::duplex::DuplexMockUTP},
 };
 
 #[derive(Clone)]
 pub struct MockUTPStream {
     pub id: StreamId,
-    peer: Option<Arc<MockUTPStream>>,
-    buffer: Arc<Mutex<BytesMut>>,
-    notify: Arc<Notify>,
+    stream: DuplexMockUTP,
 }
 
 impl MockUTPStream {
-    pub fn new(id: StreamId, peer: Option<MockUTPStream>) -> Self {
+    pub fn new(id: StreamId, stream: DuplexStream) -> Self {
         Self {
             id,
-            peer: peer.map(Arc::new),
-            buffer: Default::default(),
-            notify: Notify::new().into(),
-        }
-    }
-
-    pub fn set_peer(&mut self, peer: Option<MockUTPStream>) {
-        self.peer = peer.map(Arc::new);
-    }
-
-    pub(self) async fn write_buffer(&self, data: &Bytes) {
-        self.buffer.lock().await.extend_from_slice(data);
-        self.notify.notify_waiters();
-    }
-
-    pub(self) async fn read_buffer(&self, n: usize) -> Bytes {
-        loop {
-            let mut buf = self.buffer.lock().await;
-            if buf.len() >= n {
-                let result = buf.split_to(n).freeze();
-                return result;
-            }
-            drop(buf);
-            self.notify.notified().await;
+            stream: DuplexMockUTP::new(stream),
         }
     }
 }
 
-#[async_trait]
 impl UTPStream for MockUTPStream {
+    type StreamRead = DuplexMockUTP;
+    type StreamWrite = DuplexMockUTP;
+
     fn id(&self) -> StreamId {
         self.id
     }
 
-    async fn send(&self, data: &Bytes) -> Result<(), UTPError> {
-        if let Some(peer) = self.peer.as_ref() {
-            peer.write_buffer(data).await;
-        }
-        Ok(())
+    fn integrity_type(&self) -> IntegrityType {
+        IntegrityType::Reliable
     }
 
-    async fn receive(&self, data: &mut BytesMut) -> Result<usize, UTPError> {
-        let d = self.read_buffer(data.len()).await;
-        let len = d.len();
-        *data = BytesMut::from(d);
-
-        Ok(len)
+    fn reader(&self) -> Self::StreamRead {
+        self.stream.clone()
     }
 
-    async fn close(&self) -> Result<(), UTPError> {
-        self.buffer.lock().await.clear();
-        Ok(())
+    fn writer(&self) -> Self::StreamWrite {
+        self.stream.clone()
     }
 }
 
-pub fn mock_pairs() -> (MockUTPStream, MockUTPStream) {
-    let mut x = MockUTPStream::new(0, None);
-    let y = MockUTPStream::new(1, Some(x.clone()));
-    x.set_peer(Some(y.clone()));
+pub fn mock_utp_stream_pairs(id: StreamId) -> (MockUTPStream, MockUTPStream) {
+    let (a, b) = tokio::io::duplex(1024);
+
+    let x = MockUTPStream::new(id, a);
+    let y = MockUTPStream::new(id, b);
 
     (x, y)
 }
@@ -87,45 +54,48 @@ pub fn mock_pairs() -> (MockUTPStream, MockUTPStream) {
 #[cfg(test)]
 mod tests {
     use bytes::BytesMut;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-    use crate::utp::{protocol::UTPStream, tests::stream::mock_pairs};
+    use crate::utp::{UTPStream, tests::stream::mock_utp_stream_pairs};
 
     #[tokio::test]
     async fn test_mock_pairs_atob() {
-        let (a, b) = mock_pairs();
+        let (a, b) = mock_utp_stream_pairs(0);
 
-        a.send(
-            &BytesMut::zeroed(14)
-                .iter()
-                .map(|e| e + 1)
-                .collect::<BytesMut>()
-                .freeze(),
-        )
-        .await
-        .unwrap();
+        a.writer()
+            .write_all(
+                &BytesMut::zeroed(14)
+                    .iter()
+                    .map(|e| e + 1)
+                    .collect::<BytesMut>()
+                    .freeze(),
+            )
+            .await
+            .unwrap();
 
-        let mut b_data = BytesMut::zeroed(14);
-        b.receive(&mut b_data).await.unwrap();
+        let mut b_data = vec![0; 14];
+        b.reader().read_exact(&mut b_data).await.unwrap();
 
         assert_eq!(b_data[13], 1);
     }
 
     #[tokio::test]
     async fn test_mock_pairs_btoa() {
-        let (a, b) = mock_pairs();
+        let (a, b) = mock_utp_stream_pairs(0);
 
-        b.send(
-            &BytesMut::zeroed(14)
-                .iter()
-                .map(|e| e + 1)
-                .collect::<BytesMut>()
-                .freeze(),
-        )
-        .await
-        .unwrap();
+        b.writer()
+            .write_all(
+                &BytesMut::zeroed(14)
+                    .iter()
+                    .map(|e| e + 1)
+                    .collect::<BytesMut>()
+                    .freeze(),
+            )
+            .await
+            .unwrap();
 
-        let mut a_data = BytesMut::zeroed(14);
-        a.receive(&mut a_data).await.unwrap();
+        let mut a_data = vec![0; 14];
+        a.reader().read_exact(&mut a_data).await.unwrap();
 
         assert_eq!(a_data[13], 1);
     }

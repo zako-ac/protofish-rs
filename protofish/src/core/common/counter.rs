@@ -1,4 +1,4 @@
-use crate::schema::payload::schema::ContextId;
+use crate::schema::ContextId;
 
 #[derive(Debug)]
 pub struct ContextCounter {

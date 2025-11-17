@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use bytes::{Bytes, BytesMut};
 use tokio::sync::{Mutex, Notify};
 
 use crate::{
@@ -13,7 +14,7 @@ use crate::{
 pub struct MockUTPStream {
     pub id: StreamId,
     peer: Option<Arc<MockUTPStream>>,
-    buffer: Arc<Mutex<Vec<u8>>>,
+    buffer: Arc<Mutex<BytesMut>>,
     notify: Arc<Notify>,
 }
 
@@ -31,16 +32,16 @@ impl MockUTPStream {
         self.peer = peer.map(Arc::new);
     }
 
-    pub(self) async fn write_buffer(&self, data: &[u8]) {
+    pub(self) async fn write_buffer(&self, data: &Bytes) {
         self.buffer.lock().await.extend_from_slice(data);
         self.notify.notify_waiters();
     }
 
-    pub(self) async fn read_buffer(&self, n: usize) -> Vec<u8> {
+    pub(self) async fn read_buffer(&self, n: usize) -> Bytes {
         loop {
             let mut buf = self.buffer.lock().await;
             if buf.len() >= n {
-                let result = buf.drain(..n).collect();
+                let result = buf.split_to(n).freeze();
                 return result;
             }
             drop(buf);
@@ -59,19 +60,17 @@ impl UTPStream for MockUTPStream {
         IntegrityType::Reliable
     }
 
-    async fn send(&self, data: &[u8]) -> Result<(), UTPError> {
+    async fn send(&self, data: &Bytes) -> Result<(), UTPError> {
         if let Some(peer) = self.peer.as_ref() {
             peer.write_buffer(data).await;
         }
         Ok(())
     }
 
-    async fn receive(&self, data: &mut [u8]) -> Result<(), UTPError> {
-        let d: Vec<u8> = self.read_buffer(data.len()).await;
+    async fn receive(&self, len: usize) -> Result<Bytes, UTPError> {
+        let d = self.read_buffer(len).await;
 
-        data[..d.len()].copy_from_slice(&d);
-
-        Ok(())
+        Ok(d)
     }
 
     async fn close(&self) -> Result<(), UTPError> {
@@ -100,6 +99,7 @@ pub fn mock_utp_stream_pairs(id: StreamId) -> (MockUTPStream, MockUTPStream) {
 
 #[cfg(test)]
 mod tests {
+    use bytes::BytesMut;
 
     use crate::utp::{protocol::UTPStream, tests::stream::mock_pairs};
 
@@ -107,12 +107,17 @@ mod tests {
     async fn test_mock_pairs_atob() {
         let (a, b) = mock_pairs();
 
-        a.send(&vec![0; 14].iter().map(|e| e + 1).collect::<Vec<_>>())
-            .await
-            .unwrap();
+        a.send(
+            &BytesMut::zeroed(14)
+                .iter()
+                .map(|e| e + 1)
+                .collect::<BytesMut>()
+                .freeze(),
+        )
+        .await
+        .unwrap();
 
-        let mut b_data = vec![0; 14];
-        b.receive(&mut b_data).await.unwrap();
+        let b_data = b.receive(14).await.unwrap();
 
         assert_eq!(b_data[13], 1);
     }
@@ -121,12 +126,17 @@ mod tests {
     async fn test_mock_pairs_btoa() {
         let (a, b) = mock_pairs();
 
-        b.send(&vec![0; 14].iter().map(|e| e + 1).collect::<Vec<_>>())
-            .await
-            .unwrap();
+        b.send(
+            &BytesMut::zeroed(14)
+                .iter()
+                .map(|e| e + 1)
+                .collect::<BytesMut>()
+                .freeze(),
+        )
+        .await
+        .unwrap();
 
-        let mut a_data = vec![0u8; 14];
-        a.receive(&mut a_data).await.unwrap();
+        let a_data = a.receive(14).await.unwrap();
 
         assert_eq!(a_data[13], 1);
     }

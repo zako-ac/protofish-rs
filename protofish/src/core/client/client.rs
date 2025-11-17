@@ -1,5 +1,7 @@
 use std::sync::Arc;
 
+use bytes::Bytes;
+
 use crate::{
     constant::VERSION,
     core::common::{
@@ -52,8 +54,8 @@ where
 
 async fn client_handshake<S: UTPStream>(
     ctx: (ContextWriter<S>, ContextReader),
-    resume_token: Option<Vec<u8>>,
-) -> Result<Vec<u8>, ProtofishError> {
+    resume_token: Option<Bytes>,
+) -> Result<Bytes, ProtofishError> {
     let (tx, rx) = ctx;
 
     let client_hello = ClientHello {
@@ -89,6 +91,8 @@ async fn client_handshake<S: UTPStream>(
 #[cfg(test)]
 mod tests {
 
+    use bytes::BytesMut;
+
     use crate::{
         constant::VERSION,
         core::{client::client::client_handshake, common::pmc::PMC},
@@ -110,7 +114,7 @@ mod tests {
             if let Payload::ClientHello(_) = payload {
                 tx.write(Payload::ServerHello(ServerHello {
                     ok: true,
-                    connection_token: Some(vec![0; 20]),
+                    connection_token: Some(BytesMut::zeroed(20).freeze()),
                     message: None,
                     version: VERSION,
                 }))
@@ -122,6 +126,8 @@ mod tests {
         });
 
         let ctx = client_pmc.create_context();
-        client_handshake(ctx, Some(vec![0u8; 30])).await.unwrap();
+        client_handshake(ctx, Some(BytesMut::zeroed(30).freeze()))
+            .await
+            .unwrap();
     }
 }

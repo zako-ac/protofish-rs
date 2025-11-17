@@ -1,3 +1,5 @@
+use bytes::Bytes;
+
 use crate::schema::{IntegrityType, Version};
 
 pub type ContextId = u64;
@@ -34,7 +36,7 @@ pub struct ClientHello {
 pub struct ServerHello {
     pub version: Version,
     pub ok: bool,
-    pub connection_token: Option<Vec<u8>>,
+    pub connection_token: Option<Bytes>,
     pub message: Option<String>,
 }
 
